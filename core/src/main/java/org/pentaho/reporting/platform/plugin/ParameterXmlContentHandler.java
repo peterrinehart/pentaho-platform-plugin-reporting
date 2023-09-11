@@ -12,7 +12,7 @@
  * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU Lesser General Public License for more details.
  *
- * Copyright (c) 2002-2020 Hitachi Vantara..  All rights reserved.
+ * Copyright (c) 2002-2023 Hitachi Vantara..  All rights reserved.
  */
 
 package org.pentaho.reporting.platform.plugin;
@@ -56,6 +56,7 @@ import org.pentaho.platform.engine.core.system.PentahoSystem;
 import org.pentaho.platform.util.UUIDUtil;
 import org.pentaho.plugin.jfreereport.reportcharts.ChartExpression;
 import org.pentaho.reporting.engine.classic.core.AttributeNames;
+import org.pentaho.reporting.engine.classic.core.ClassicEngineBoot;
 import org.pentaho.reporting.engine.classic.core.MasterReport;
 import org.pentaho.reporting.engine.classic.core.ReportDataFactoryException;
 import org.pentaho.reporting.engine.classic.core.ReportElement;
@@ -64,6 +65,7 @@ import org.pentaho.reporting.engine.classic.core.function.Expression;
 import org.pentaho.reporting.engine.classic.core.function.FormulaExpression;
 import org.pentaho.reporting.engine.classic.core.modules.output.table.html.HtmlTableModule;
 import org.pentaho.reporting.engine.classic.core.parameters.AbstractParameter;
+import org.pentaho.reporting.engine.classic.core.parameters.DefaultListParameter;
 import org.pentaho.reporting.engine.classic.core.parameters.DefaultParameterContext;
 import org.pentaho.reporting.engine.classic.core.parameters.ListParameter;
 import org.pentaho.reporting.engine.classic.core.parameters.ParameterAttributeNames;
@@ -83,6 +85,7 @@ import org.pentaho.reporting.engine.classic.core.util.beans.ConverterRegistry;
 import org.pentaho.reporting.engine.classic.core.util.beans.ValueConverter;
 import org.pentaho.reporting.engine.classic.extensions.drilldown.DrillDownProfile;
 import org.pentaho.reporting.engine.classic.extensions.drilldown.DrillDownProfileMetaData;
+import org.pentaho.reporting.libraries.base.boot.AbstractBoot;
 import org.pentaho.reporting.libraries.base.util.NullOutputStream;
 import org.pentaho.reporting.libraries.base.util.StringUtils;
 import org.pentaho.reporting.libraries.formula.DefaultFormulaContext;
@@ -95,6 +98,7 @@ import org.pentaho.reporting.libraries.resourceloader.ResourceException;
 import org.pentaho.reporting.platform.plugin.messages.Messages;
 import org.pentaho.reporting.platform.plugin.output.FastExportReportOutputHandlerFactory;
 import org.pentaho.reporting.platform.plugin.output.ReportOutputHandlerFactory;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.web.util.HtmlUtils;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -121,6 +125,12 @@ public class ParameterXmlContentHandler {
   private static final String SYS_PARAM_IS_QUERY_CONTROL_ENABLED = "query-limit-ui-enabled";
   private static final String SYS_PARAM_REPORT_QUERY_LIMIT = "report-query-limit";
   static final String SYS_PARAM_QUERY_LIMIT = "query-limit";
+  private static final String CONFIG_START_DATE_RANGE_PARAM_NAME = "org.pentaho.reporting.engine.classic.core.scheduler.startDateRangeParamName";
+  private static final String CONFIG_END_DATE_RANGE_PARAM_NAME = "org.pentaho.reporting.engine.classic.core.scheduler.endDateRangeParamName";
+  private static String startDateParamName = "";
+  private static String endDateParamName = "";
+
+  private static boolean useRelativeDateParams = false;
   private static final String SYS_PARAM_MAX_QUERY_LIMIT = "maximum-query-limit";
   // default visibility for testing purposes
   Document document;
@@ -133,6 +143,25 @@ public class ParameterXmlContentHandler {
     this.paginate = paginate;
     inputs = contentGenerator.createInputs();
     requestParameters = contentGenerator.getRequestParameters();
+    startDateParamName = ClassicEngineBoot.getInstance().getGlobalConfig().getConfigProperty( CONFIG_START_DATE_RANGE_PARAM_NAME, "" );
+    endDateParamName = ClassicEngineBoot.getInstance().getGlobalConfig().getConfigProperty( CONFIG_END_DATE_RANGE_PARAM_NAME, "" );
+    useRelativeDateParams = !startDateParamName.isEmpty() && !endDateParamName.isEmpty();
+  }
+
+  private static String getRelCheckboxParamName( String paramName ) {
+    return paramName + "_Checkbox";
+  }
+
+  private static String getThisLastParamName( String paramName ) {
+    return paramName + "_ThisLast";
+  }
+
+  private static String getRelativeValParamName( String paramName ) {
+    return paramName + "_RelativeVal";
+  }
+
+  private static String getRelativeUnitParamName( String paramName ) {
+    return paramName + "_RelativeUnit";
   }
 
   public static String convertParameterValueToString( final ParameterDefinitionEntry parameter,
@@ -501,7 +530,48 @@ public class ParameterXmlContentHandler {
         reportParameters.put( entry.getKey(), entry.getValue() );
       }
     }
-    return reportParameters;
+    LinkedHashMap<String, ParameterDefinitionEntry> tempParams = addRelativeDateFields( reportParameters, startDateParamName );
+    return addRelativeDateFields( tempParams, endDateParamName );
+  }
+
+  protected LinkedHashMap<String, ParameterDefinitionEntry> addRelativeDateFields( Map<String, ParameterDefinitionEntry> inputsParams, String relativeParamName ) {
+    LinkedHashMap<String, ParameterDefinitionEntry> modifiedParams = new LinkedHashMap<>( inputsParams );
+    if ( inputsParams.containsKey( relativeParamName ) ) {
+      if ( !inputsParams.containsKey( getRelCheckboxParamName( relativeParamName ) ) ) {
+        // need to add the checkbox and set its value if it was passed to us from the UI
+        PlainParameter checkboxParam = new PlainParameter( getRelCheckboxParamName( relativeParamName ), Boolean.class );
+        checkboxParam.setDefaultValue( false );
+        checkboxParam.setHidden( false );
+        modifiedParams.put( checkboxParam.getName(), checkboxParam );
+      } else if ( Boolean.TRUE.equals( inputs.get( getRelCheckboxParamName( relativeParamName ) ) ) ) {
+        // checkbox param existed and was true; add in the other fields
+        StaticListParameter thisLastParam = new StaticListParameter( getThisLastParamName( relativeParamName ), false, true, String.class );
+        thisLastParam.addValues( "This", "This" );
+        thisLastParam.addValues( "Last", "Last" );
+        thisLastParam.setHidden( false );
+        thisLastParam.setDefaultValue( "This" );
+        modifiedParams.put( thisLastParam.getName(), thisLastParam );
+        StaticListParameter unitParam = new StaticListParameter( getRelativeUnitParamName( relativeParamName ), false, true, String.class );
+        unitParam.addValues( "Days", "Days" );
+        unitParam.addValues( "Weeks", "Weeks" );
+        unitParam.addValues( "Months", "Months" );
+        unitParam.addValues( "Months (Calendar)", "Months (Calendar)" );
+        unitParam.addValues( "Quarter (Calendar)", "Quarter (Calendar)" );
+        unitParam.addValues( "Quarter (Fiscal)", "Quarter (Fiscal)" );
+        unitParam.addValues( "Months", "Months" );
+        unitParam.addValues( "Years", "Years" );
+        unitParam.addValues( "Years (Calendar)", "Years (Calendar)" );
+        unitParam.addValues( "Years (Fiscal)", "Years (Fiscal)" );
+        unitParam.setDefaultValue( "Days" );
+        unitParam.setHidden( false );
+        modifiedParams.put( unitParam.getName(), unitParam );
+        PlainParameter valueParam = new PlainParameter( getRelativeValParamName( relativeParamName ), Integer.class );
+        valueParam.setHidden( false );
+        valueParam.setDefaultValue( 1 );
+        modifiedParams.put( valueParam.getName(), valueParam );
+      }
+    }
+    return modifiedParams;
   }
 
   protected void appendParametersList( final DefaultParameterContext parameterContext,
