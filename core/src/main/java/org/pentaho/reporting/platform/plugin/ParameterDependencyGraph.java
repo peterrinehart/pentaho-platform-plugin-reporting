@@ -278,6 +278,8 @@ public class ParameterDependencyGraph {
       analyzeFormula( extractFormula( parameterContext, pe, ParameterAttributeNames.Core.POST_PROCESSOR_FORMULA ) ) );
     retval.addAll(
       analyzeFormula( extractFormula( parameterContext, pe, ParameterAttributeNames.Core.DISPLAY_VALUE_FORMULA ) ) );
+    retval.addAll(
+      analyzeFormula( extractFormula( parameterContext, pe, ParameterAttributeNames.Core.HIDDEN_FORMULA ) ) );
     return retval;
   }
 

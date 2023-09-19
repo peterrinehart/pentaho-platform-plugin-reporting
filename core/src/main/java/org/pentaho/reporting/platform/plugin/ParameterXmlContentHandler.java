@@ -17,6 +17,64 @@
 
 package org.pentaho.reporting.platform.plugin;
 
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.lang.math.NumberUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.pentaho.platform.api.engine.IParameterProvider;
+import org.pentaho.platform.api.engine.IPluginManager;
+import org.pentaho.platform.engine.core.system.PentahoSystem;
+import org.pentaho.platform.util.UUIDUtil;
+import org.pentaho.plugin.jfreereport.reportcharts.ChartExpression;
+import org.pentaho.reporting.engine.classic.core.AttributeNames;
+import org.pentaho.reporting.engine.classic.core.MasterReport;
+import org.pentaho.reporting.engine.classic.core.ReportDataFactoryException;
+import org.pentaho.reporting.engine.classic.core.ReportElement;
+import org.pentaho.reporting.engine.classic.core.Section;
+import org.pentaho.reporting.engine.classic.core.function.Expression;
+import org.pentaho.reporting.engine.classic.core.function.FormulaExpression;
+import org.pentaho.reporting.engine.classic.core.modules.output.table.html.HtmlTableModule;
+import org.pentaho.reporting.engine.classic.core.parameters.AbstractParameter;
+import org.pentaho.reporting.engine.classic.core.parameters.DefaultParameterContext;
+import org.pentaho.reporting.engine.classic.core.parameters.ListParameter;
+import org.pentaho.reporting.engine.classic.core.parameters.ParameterAttributeNames;
+import org.pentaho.reporting.engine.classic.core.parameters.ParameterContext;
+import org.pentaho.reporting.engine.classic.core.parameters.ParameterContextWrapper;
+import org.pentaho.reporting.engine.classic.core.parameters.ParameterDefinitionEntry;
+import org.pentaho.reporting.engine.classic.core.parameters.ParameterValues;
+import org.pentaho.reporting.engine.classic.core.parameters.PlainParameter;
+import org.pentaho.reporting.engine.classic.core.parameters.ReportParameterDefinition;
+import org.pentaho.reporting.engine.classic.core.parameters.StaticListParameter;
+import org.pentaho.reporting.engine.classic.core.parameters.ValidationMessage;
+import org.pentaho.reporting.engine.classic.core.parameters.ValidationResult;
+import org.pentaho.reporting.engine.classic.core.style.ElementStyleKeys;
+import org.pentaho.reporting.engine.classic.core.util.ReportParameterValues;
+import org.pentaho.reporting.engine.classic.core.util.beans.BeanException;
+import org.pentaho.reporting.engine.classic.core.util.beans.ConverterRegistry;
+import org.pentaho.reporting.engine.classic.core.util.beans.ValueConverter;
+import org.pentaho.reporting.engine.classic.extensions.drilldown.DrillDownProfile;
+import org.pentaho.reporting.engine.classic.extensions.drilldown.DrillDownProfileMetaData;
+import org.pentaho.reporting.libraries.base.util.NullOutputStream;
+import org.pentaho.reporting.libraries.base.util.StringUtils;
+import org.pentaho.reporting.libraries.formula.DefaultFormulaContext;
+import org.pentaho.reporting.libraries.formula.lvalues.DataTable;
+import org.pentaho.reporting.libraries.formula.lvalues.FormulaFunction;
+import org.pentaho.reporting.libraries.formula.lvalues.LValue;
+import org.pentaho.reporting.libraries.formula.lvalues.StaticValue;
+import org.pentaho.reporting.libraries.formula.parser.FormulaParser;
+import org.pentaho.reporting.libraries.resourceloader.ResourceException;
+import org.pentaho.reporting.platform.plugin.messages.Messages;
+import org.pentaho.reporting.platform.plugin.output.FastExportReportOutputHandlerFactory;
+import org.pentaho.reporting.platform.plugin.output.ReportOutputHandlerFactory;
+import org.springframework.web.util.HtmlUtils;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Serializable;
@@ -40,69 +98,6 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
 
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
-
-import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.lang.math.NumberUtils;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.pentaho.platform.api.engine.IParameterProvider;
-import org.pentaho.platform.api.engine.IPluginManager;
-import org.pentaho.platform.engine.core.system.PentahoSystem;
-import org.pentaho.platform.util.UUIDUtil;
-import org.pentaho.plugin.jfreereport.reportcharts.ChartExpression;
-import org.pentaho.reporting.engine.classic.core.AttributeNames;
-import org.pentaho.reporting.engine.classic.core.ClassicEngineBoot;
-import org.pentaho.reporting.engine.classic.core.MasterReport;
-import org.pentaho.reporting.engine.classic.core.ReportDataFactoryException;
-import org.pentaho.reporting.engine.classic.core.ReportElement;
-import org.pentaho.reporting.engine.classic.core.Section;
-import org.pentaho.reporting.engine.classic.core.function.Expression;
-import org.pentaho.reporting.engine.classic.core.function.FormulaExpression;
-import org.pentaho.reporting.engine.classic.core.modules.output.table.html.HtmlTableModule;
-import org.pentaho.reporting.engine.classic.core.parameters.AbstractParameter;
-import org.pentaho.reporting.engine.classic.core.parameters.DefaultListParameter;
-import org.pentaho.reporting.engine.classic.core.parameters.DefaultParameterContext;
-import org.pentaho.reporting.engine.classic.core.parameters.ListParameter;
-import org.pentaho.reporting.engine.classic.core.parameters.ParameterAttributeNames;
-import org.pentaho.reporting.engine.classic.core.parameters.ParameterContext;
-import org.pentaho.reporting.engine.classic.core.parameters.ParameterContextWrapper;
-import org.pentaho.reporting.engine.classic.core.parameters.ParameterDefinitionEntry;
-import org.pentaho.reporting.engine.classic.core.parameters.ParameterValues;
-import org.pentaho.reporting.engine.classic.core.parameters.PlainParameter;
-import org.pentaho.reporting.engine.classic.core.parameters.ReportParameterDefinition;
-import org.pentaho.reporting.engine.classic.core.parameters.StaticListParameter;
-import org.pentaho.reporting.engine.classic.core.parameters.ValidationMessage;
-import org.pentaho.reporting.engine.classic.core.parameters.ValidationResult;
-import org.pentaho.reporting.engine.classic.core.style.ElementStyleKeys;
-import org.pentaho.reporting.engine.classic.core.util.ReportParameterValues;
-import org.pentaho.reporting.engine.classic.core.util.beans.BeanException;
-import org.pentaho.reporting.engine.classic.core.util.beans.ConverterRegistry;
-import org.pentaho.reporting.engine.classic.core.util.beans.ValueConverter;
-import org.pentaho.reporting.engine.classic.extensions.drilldown.DrillDownProfile;
-import org.pentaho.reporting.engine.classic.extensions.drilldown.DrillDownProfileMetaData;
-import org.pentaho.reporting.libraries.base.boot.AbstractBoot;
-import org.pentaho.reporting.libraries.base.util.NullOutputStream;
-import org.pentaho.reporting.libraries.base.util.StringUtils;
-import org.pentaho.reporting.libraries.formula.DefaultFormulaContext;
-import org.pentaho.reporting.libraries.formula.lvalues.DataTable;
-import org.pentaho.reporting.libraries.formula.lvalues.FormulaFunction;
-import org.pentaho.reporting.libraries.formula.lvalues.LValue;
-import org.pentaho.reporting.libraries.formula.lvalues.StaticValue;
-import org.pentaho.reporting.libraries.formula.parser.FormulaParser;
-import org.pentaho.reporting.libraries.resourceloader.ResourceException;
-import org.pentaho.reporting.platform.plugin.messages.Messages;
-import org.pentaho.reporting.platform.plugin.output.FastExportReportOutputHandlerFactory;
-import org.pentaho.reporting.platform.plugin.output.ReportOutputHandlerFactory;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
-import org.springframework.web.util.HtmlUtils;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-
 
 public class ParameterXmlContentHandler {
   public static final String SYS_PARAM_ACCEPTED_PAGE = "accepted-page";
@@ -125,8 +120,6 @@ public class ParameterXmlContentHandler {
   private static final String SYS_PARAM_IS_QUERY_CONTROL_ENABLED = "query-limit-ui-enabled";
   private static final String SYS_PARAM_REPORT_QUERY_LIMIT = "report-query-limit";
   static final String SYS_PARAM_QUERY_LIMIT = "query-limit";
-  private static final String CONFIG_START_DATE_RANGE_PARAM_NAME = "org.pentaho.reporting.engine.classic.core.scheduler.startDateRangeParamName";
-  private static final String CONFIG_END_DATE_RANGE_PARAM_NAME = "org.pentaho.reporting.engine.classic.core.scheduler.endDateRangeParamName";
   private static String startDateParamName = "";
   private static String endDateParamName = "";
 
@@ -143,25 +136,6 @@ public class ParameterXmlContentHandler {
     this.paginate = paginate;
     inputs = contentGenerator.createInputs();
     requestParameters = contentGenerator.getRequestParameters();
-    startDateParamName = ClassicEngineBoot.getInstance().getGlobalConfig().getConfigProperty( CONFIG_START_DATE_RANGE_PARAM_NAME, "" );
-    endDateParamName = ClassicEngineBoot.getInstance().getGlobalConfig().getConfigProperty( CONFIG_END_DATE_RANGE_PARAM_NAME, "" );
-    useRelativeDateParams = !startDateParamName.isEmpty() && !endDateParamName.isEmpty();
-  }
-
-  private static String getRelCheckboxParamName( String paramName ) {
-    return paramName + "_Checkbox";
-  }
-
-  private static String getThisLastParamName( String paramName ) {
-    return paramName + "_ThisLast";
-  }
-
-  private static String getRelativeValParamName( String paramName ) {
-    return paramName + "_RelativeVal";
-  }
-
-  private static String getRelativeUnitParamName( String paramName ) {
-    return paramName + "_RelativeUnit";
   }
 
   public static String convertParameterValueToString( final ParameterDefinitionEntry parameter,
@@ -354,11 +328,11 @@ public class ParameterXmlContentHandler {
 
     MasterReport report = reportComponent.getReport();
 
-    final DefaultParameterContext parameterContext = new DefaultParameterContext( report );
+    DefaultParameterContext parameterContext = new DefaultParameterContext( report );
     final ValidationResult vr;
     try {
       // apply inputs to parameters
-      final ValidationResult validationResult =
+      ValidationResult validationResult =
         ReportContentUtil.applyInputsToReportParameters( report, parameterContext, inputs, new ValidationResult() );
 
       final ReportParameterDefinition reportParameterDefinition = report.getParameterDefinition();
@@ -398,7 +372,7 @@ public class ParameterXmlContentHandler {
         AttributeNames.Core.NAMESPACE, AttributeNames.Core.PARAMETER_UI_LAYOUT,
         "org.pentaho.reporting.engine.classic.core.ParameterUiLayout" ) );
 
-      final LinkedHashMap<String, ParameterDefinitionEntry> reportParameters =
+      LinkedHashMap<String, ParameterDefinitionEntry> reportParameters =
         collectParameterEntries( reportParameterDefinition );
 
       if ( overrideOutputType ) {
@@ -445,6 +419,8 @@ public class ParameterXmlContentHandler {
       parameterContext.close();
     }
   }
+
+
 
   private void appendErrorMessages( ValidationResult vr, Element parameters ) {
     if ( vr.isEmpty() == false ) {
@@ -530,49 +506,10 @@ public class ParameterXmlContentHandler {
         reportParameters.put( entry.getKey(), entry.getValue() );
       }
     }
-    LinkedHashMap<String, ParameterDefinitionEntry> tempParams = addRelativeDateFields( reportParameters, startDateParamName );
-    return addRelativeDateFields( tempParams, endDateParamName );
+    return reportParameters;
   }
 
-  protected LinkedHashMap<String, ParameterDefinitionEntry> addRelativeDateFields( Map<String, ParameterDefinitionEntry> inputsParams, String relativeParamName ) {
-    LinkedHashMap<String, ParameterDefinitionEntry> modifiedParams = new LinkedHashMap<>( inputsParams );
-    if ( inputsParams.containsKey( relativeParamName ) ) {
-      if ( !inputsParams.containsKey( getRelCheckboxParamName( relativeParamName ) ) ) {
-        // need to add the checkbox and set its value if it was passed to us from the UI
-        PlainParameter checkboxParam = new PlainParameter( getRelCheckboxParamName( relativeParamName ), Boolean.class );
-        checkboxParam.setDefaultValue( false );
-        checkboxParam.setHidden( false );
-        modifiedParams.put( checkboxParam.getName(), checkboxParam );
-      } else if ( Boolean.TRUE.equals( inputs.get( getRelCheckboxParamName( relativeParamName ) ) ) ) {
-        // checkbox param existed and was true; add in the other fields
-        StaticListParameter thisLastParam = new StaticListParameter( getThisLastParamName( relativeParamName ), false, true, String.class );
-        thisLastParam.addValues( "This", "This" );
-        thisLastParam.addValues( "Last", "Last" );
-        thisLastParam.setHidden( false );
-        thisLastParam.setDefaultValue( "This" );
-        modifiedParams.put( thisLastParam.getName(), thisLastParam );
-        StaticListParameter unitParam = new StaticListParameter( getRelativeUnitParamName( relativeParamName ), false, true, String.class );
-        unitParam.addValues( "Days", "Days" );
-        unitParam.addValues( "Weeks", "Weeks" );
-        unitParam.addValues( "Months", "Months" );
-        unitParam.addValues( "Months (Calendar)", "Months (Calendar)" );
-        unitParam.addValues( "Quarter (Calendar)", "Quarter (Calendar)" );
-        unitParam.addValues( "Quarter (Fiscal)", "Quarter (Fiscal)" );
-        unitParam.addValues( "Months", "Months" );
-        unitParam.addValues( "Years", "Years" );
-        unitParam.addValues( "Years (Calendar)", "Years (Calendar)" );
-        unitParam.addValues( "Years (Fiscal)", "Years (Fiscal)" );
-        unitParam.setDefaultValue( "Days" );
-        unitParam.setHidden( false );
-        modifiedParams.put( unitParam.getName(), unitParam );
-        PlainParameter valueParam = new PlainParameter( getRelativeValParamName( relativeParamName ), Integer.class );
-        valueParam.setHidden( false );
-        valueParam.setDefaultValue( 1 );
-        modifiedParams.put( valueParam.getName(), valueParam );
-      }
-    }
-    return modifiedParams;
-  }
+
 
   protected void appendParametersList( final DefaultParameterContext parameterContext,
                                        final ValidationResult vr,
@@ -845,6 +782,25 @@ public class ParameterXmlContentHandler {
           attrElement.setAttribute( "name", "must-validate-on-server" );
           attrElement.setAttribute( "value", Boolean.TRUE.toString() );
           parameterElement.appendChild( attrElement );
+        }
+      } else {
+        // hidden param attribute still needs to be recalculated every update
+        for ( final String namespace : namespaces ) {
+          final String[] attributeNames = parameter.getParameterAttributeNames( namespace );
+          for ( final String attributeName : attributeNames ) {
+            if ( attributeName.equalsIgnoreCase( "hidden" ) ) {
+              final String attributeValue =
+                parameter.getTranslatedParameterAttribute( namespace, attributeName, parameterContext );
+              // expecting: label, parameter-render-type, parameter-layout
+              // but others possible as well, so we set them all
+              final Element attributeElement = document.createElement( "attribute" ); // NON-NLS
+              attributeElement.setAttribute( "namespace", namespace ); // NON-NLS
+              attributeElement.setAttribute( "name", attributeName ); // NON-NLS
+              attributeElement.setAttribute( "value", attributeValue ); // NON-NLS
+
+              parameterElement.appendChild( attributeElement );
+            }
+          }
         }
       }
 
