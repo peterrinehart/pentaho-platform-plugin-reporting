@@ -123,7 +123,7 @@ public class ParameterXmlContentHandler {
   static final String SYS_PARAM_QUERY_LIMIT = "query-limit";
   private static final String SYS_PARAM_MAX_QUERY_LIMIT = "maximum-query-limit";
   // default visibility for testing purposes
-  Document document;
+  protected Document document;
   private Map<String, ParameterDefinitionEntry> systemParameter;
   private final boolean paginate;
   private final IParameterProvider requestParameters;
@@ -400,6 +400,7 @@ public class ParameterXmlContentHandler {
 
       appendErrorMessages( vr, parameters );
       appendOutputParameter( report, parameters );
+      additionalParameterModifications( parameters, report, inputs );
 
       if ( vr.isEmpty() && paginate
         && reportComponent.getComputedOutputTarget()
@@ -417,6 +418,10 @@ public class ParameterXmlContentHandler {
     } finally {
       parameterContext.close();
     }
+  }
+
+  protected void additionalParameterModifications( Element parameters, MasterReport report, Map<String, Object> inputs ) {
+    return;
   }
 
   private void appendErrorMessages( ValidationResult vr, Element parameters ) {
